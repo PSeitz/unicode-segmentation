@@ -1,9 +1,10 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
-use std::fs;
+use std::{fs, time::Duration};
 use unicode_segmentation::UnicodeSegmentation;
 
 const FILES: &[&str] = &[
+    "log",
     "arabic",
     "english",
     "hindi",
@@ -23,13 +24,14 @@ fn grapheme(text: &str) {
 
 fn bench_all(c: &mut Criterion) {
     let mut group = c.benchmark_group("word_bounds");
+    group.warm_up_time(Duration::from_millis(200));
 
     for file in FILES {
-        group.bench_with_input(
-            BenchmarkId::new("grapheme", file),
-            &fs::read_to_string(format!("benches/texts/{file}.txt",)).unwrap(),
-            |b, content| b.iter(|| grapheme(content)),
-        );
+        let input = fs::read_to_string(format!("benches/texts/{file}.txt")).unwrap();
+        group.throughput(criterion::Throughput::Bytes(input.len() as u64));
+        group.bench_with_input(BenchmarkId::from_parameter(file), &input, |b, content| {
+            b.iter(|| grapheme(content))
+        });
     }
 }
 

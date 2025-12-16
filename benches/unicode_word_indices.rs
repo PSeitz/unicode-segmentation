@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
-use std::fs;
+use std::{fs, time::Duration};
 use unicode_segmentation::UnicodeSegmentation;
 
 const FILES: &[&str] = &[
@@ -23,6 +23,7 @@ fn grapheme(text: &str) {
 
 fn bench_all(c: &mut Criterion) {
     let mut group = c.benchmark_group("unicode_word_indices");
+    group.warm_up_time(Duration::from_millis(200));
 
     for file in FILES {
         let input = fs::read_to_string(format!("benches/texts/{file}.txt")).unwrap();

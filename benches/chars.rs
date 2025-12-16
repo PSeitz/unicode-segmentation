@@ -7,10 +7,11 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
-use std::fs;
+use std::{fs, time::Duration};
 use unicode_segmentation::UnicodeSegmentation;
 
 const FILES: &[&str] = &[
+    "log",
     "arabic",
     "english",
     "hindi",
@@ -37,10 +38,10 @@ fn scalar(text: &str) {
 
 fn bench_all(c: &mut Criterion) {
     let mut group = c.benchmark_group("chars");
-
+    group.warm_up_time(Duration::from_millis(200));
     for file in FILES {
         group.bench_with_input(
-            BenchmarkId::new("grapheme", file),
+            BenchmarkId::new("graphemes", file),
             &fs::read_to_string(format!("benches/texts/{file}.txt")).unwrap(),
             |b, content| b.iter(|| grapheme(content)),
         );
@@ -48,7 +49,7 @@ fn bench_all(c: &mut Criterion) {
 
     for file in FILES {
         group.bench_with_input(
-            BenchmarkId::new("scalar", file),
+            BenchmarkId::new("str::chars", file),
             &fs::read_to_string(format!("benches/texts/{file}.txt")).unwrap(),
             |b, content| b.iter(|| scalar(content)),
         );

@@ -7,10 +7,11 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
-use std::fs;
+use std::{fs, time::Duration};
 use unicode_segmentation::UnicodeSegmentation;
 
 const FILES: &[&str] = &[
+    "log",
     "arabic",
     "english",
     "hindi",
@@ -29,7 +30,7 @@ fn grapheme(text: &str) {
 }
 
 #[inline(always)]
-fn scalar(text: &str) {
+fn split_whitespace(text: &str) {
     for w in text.split_whitespace() {
         black_box(w);
     }
@@ -37,20 +38,25 @@ fn scalar(text: &str) {
 
 fn bench_all(c: &mut Criterion) {
     let mut group = c.benchmark_group("words");
+    group.warm_up_time(Duration::from_millis(200));
 
     for file in FILES {
+        let input = fs::read_to_string(format!("benches/texts/{file}.txt")).unwrap();
+        group.throughput(criterion::Throughput::Bytes(input.len() as u64));
         group.bench_with_input(
-            BenchmarkId::new("grapheme", file),
-            &fs::read_to_string(format!("benches/texts/{file}.txt")).unwrap(),
+            BenchmarkId::new("unicode_words", file),
+            &input,
             |b, content| b.iter(|| grapheme(content)),
         );
     }
 
     for file in FILES {
+        let input = fs::read_to_string(format!("benches/texts/{file}.txt")).unwrap();
+        group.throughput(criterion::Throughput::Bytes(input.len() as u64));
         group.bench_with_input(
-            BenchmarkId::new("scalar", file),
-            &fs::read_to_string(format!("benches/texts/{file}.txt")).unwrap(),
-            |b, content| b.iter(|| scalar(content)),
+            BenchmarkId::new("split_whitespace", file),
+            &input,
+            |b, content| b.iter(|| split_whitespace(content)),
         );
     }
 }
