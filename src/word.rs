@@ -112,6 +112,17 @@ impl<'a> DoubleEndedIterator for UnicodeWordIndices<'a> {
 /// [`UnicodeSegmentation`]: trait.UnicodeSegmentation.html
 #[derive(Debug, Clone)]
 pub struct UWordBounds<'a> {
+    inner: WordBounds<'a>,
+}
+
+#[derive(Debug, Clone)]
+enum WordBounds<'a> {
+    Ascii(AsciiWordBoundIter<'a>),
+    Unicode(UnicodeWordBounds<'a>),
+}
+
+#[derive(Debug, Clone)]
+struct UnicodeWordBounds<'a> {
     string: &'a str,
     cat: Option<WordCat>,
     catb: Option<WordCat>,
@@ -213,6 +224,60 @@ fn is_emoji(ch: char) -> bool {
 }
 
 impl<'a> Iterator for UWordBounds<'a> {
+    type Item = &'a str;
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match &self.inner {
+            WordBounds::Ascii(i) => {
+                let slen = i.rest.len();
+                (cmp::min(slen, 1), Some(slen))
+            }
+            WordBounds::Unicode(i) => i.size_hint(),
+        }
+    }
+
+    #[inline]
+    fn next(&mut self) -> Option<&'a str> {
+        match &mut self.inner {
+            WordBounds::Ascii(i) => i.next().map(strip_pos),
+            WordBounds::Unicode(i) => i.next(),
+        }
+    }
+}
+
+impl<'a> DoubleEndedIterator for UWordBounds<'a> {
+    #[inline]
+    fn next_back(&mut self) -> Option<&'a str> {
+        match &mut self.inner {
+            WordBounds::Ascii(i) => i.next_back().map(strip_pos),
+            WordBounds::Unicode(i) => i.next_back(),
+        }
+    }
+}
+
+impl<'a> UWordBounds<'a> {
+    #[inline]
+    /// View the underlying data (the part yet to be iterated) as a slice of the original string.
+    ///
+    /// ```rust
+    /// # use unicode_segmentation::UnicodeSegmentation;
+    /// let mut iter = "Hello world".split_word_bounds();
+    /// assert_eq!(iter.as_str(), "Hello world");
+    /// iter.next();
+    /// assert_eq!(iter.as_str(), " world");
+    /// iter.next();
+    /// assert_eq!(iter.as_str(), "world");
+    /// ```
+    pub fn as_str(&self) -> &'a str {
+        match &self.inner {
+            WordBounds::Ascii(i) => i.rest,
+            WordBounds::Unicode(i) => i.as_str(),
+        }
+    }
+}
+
+impl<'a> Iterator for UnicodeWordBounds<'a> {
     type Item = &'a str;
 
     #[inline]
@@ -449,7 +514,7 @@ impl<'a> Iterator for UWordBounds<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for UWordBounds<'a> {
+impl<'a> DoubleEndedIterator for UnicodeWordBounds<'a> {
     #[inline]
     fn next_back(&mut self) -> Option<&'a str> {
         use self::FormatExtendType::*;
@@ -689,7 +754,7 @@ impl<'a> DoubleEndedIterator for UWordBounds<'a> {
     }
 }
 
-impl<'a> UWordBounds<'a> {
+impl<'a> UnicodeWordBounds<'a> {
     #[inline]
     /// View the underlying data (the part yet to be iterated) as a slice of the original string.
     ///
@@ -755,7 +820,7 @@ impl<'a> UWordBounds<'a> {
 /// AHLetter is the same as ALetter, so we don't need to distinguish it.
 ///
 /// Any other single ASCII byte is its own boundary (the default WB999).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct AsciiWordBoundIter<'a> {
     rest: &'a str,
     offset: usize,
@@ -922,20 +987,73 @@ impl<'a> DoubleEndedIterator for AsciiWordBoundIter<'a> {
 }
 
 #[inline]
-fn ascii_word_ok(t: &(usize, &str)) -> bool {
-    has_ascii_alphanumeric(&t.1)
-}
-#[inline]
 fn unicode_word_ok(t: &(usize, &str)) -> bool {
     has_alphanumeric(&t.1)
 }
 
-type AsciiWordsIter<'a> = Filter<
-    core::iter::Map<AsciiWordBoundIter<'a>, fn((usize, &'a str)) -> &'a str>,
-    fn(&&'a str) -> bool,
->;
+#[derive(Debug)]
+struct AsciiWordsIter<'a> {
+    inner: AsciiWordBoundIter<'a>,
+}
+
+impl<'a> Iterator for AsciiWordsIter<'a> {
+    type Item = &'a str;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some((_, word)) = self.inner.next() {
+            if has_ascii_alphanumeric(&word) {
+                return Some(word);
+            }
+        }
+        None
+    }
+}
+
+impl<'a> DoubleEndedIterator for AsciiWordsIter<'a> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        while let Some((_, word)) = self.inner.next_back() {
+            if has_ascii_alphanumeric(&word) {
+                return Some(word);
+            }
+        }
+        None
+    }
+}
+
+#[derive(Debug)]
+struct AsciiIndicesIter<'a> {
+    inner: AsciiWordBoundIter<'a>,
+}
+
+impl<'a> Iterator for AsciiIndicesIter<'a> {
+    type Item = (usize, &'a str);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some((idx, word)) = self.inner.next() {
+            if has_ascii_alphanumeric(&word) {
+                return Some((idx, word));
+            }
+        }
+        None
+    }
+}
+
+impl<'a> DoubleEndedIterator for AsciiIndicesIter<'a> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        while let Some((idx, word)) = self.inner.next_back() {
+            if has_ascii_alphanumeric(&word) {
+                return Some((idx, word));
+            }
+        }
+        None
+    }
+}
+
 type UnicodeWordsIter<'a> = Filter<UWordBounds<'a>, fn(&&'a str) -> bool>;
-type AsciiIndicesIter<'a> = Filter<AsciiWordBoundIter<'a>, fn(&(usize, &'a str)) -> bool>;
 type UnicodeIndicesIter<'a> = Filter<UWordBoundIndices<'a>, fn(&(usize, &'a str)) -> bool>;
 
 #[derive(Debug)]
@@ -963,7 +1081,7 @@ pub fn new_unicode_words(s: &str) -> UnicodeWords<'_> {
 #[inline]
 pub fn new_unicode_word_indices(s: &str) -> UnicodeWordIndices<'_> {
     let inner = if s.is_ascii() {
-        IndicesIter::Ascii(new_ascii_word_bound_indices(s).filter(ascii_word_ok))
+        IndicesIter::Ascii(new_ascii_word_indices_ascii(s))
     } else {
         IndicesIter::Unicode(new_word_bound_indices(s).filter(unicode_word_ok))
     };
@@ -972,11 +1090,17 @@ pub fn new_unicode_word_indices(s: &str) -> UnicodeWordIndices<'_> {
 
 #[inline]
 pub fn new_word_bounds(s: &str) -> UWordBounds<'_> {
-    UWordBounds {
-        string: s,
-        cat: None,
-        catb: None,
-    }
+    let inner = if s.is_ascii() {
+        WordBounds::Ascii(new_ascii_word_bound_indices(s))
+    } else {
+        WordBounds::Unicode(UnicodeWordBounds {
+            string: s,
+            cat: None,
+            catb: None,
+        })
+    };
+
+    UWordBounds { inner }
 }
 
 #[inline]
@@ -1001,7 +1125,7 @@ fn has_alphanumeric(s: &&str) -> bool {
 
 #[inline]
 fn has_ascii_alphanumeric(s: &&str) -> bool {
-    s.chars().any(|c| c.is_ascii_alphanumeric())
+    s.as_bytes().iter().any(|b| b.is_ascii_alphanumeric())
 }
 
 #[inline(always)]
@@ -1011,9 +1135,16 @@ fn strip_pos((_, w): (usize, &str)) -> &str {
 
 #[inline]
 fn new_unicode_words_ascii<'a>(s: &'a str) -> AsciiWordsIter<'a> {
-    new_ascii_word_bound_indices(s)
-        .map(strip_pos as fn(_) -> _)
-        .filter(has_ascii_alphanumeric)
+    AsciiWordsIter {
+        inner: new_ascii_word_bound_indices(s),
+    }
+}
+
+#[inline]
+fn new_ascii_word_indices_ascii<'a>(s: &'a str) -> AsciiIndicesIter<'a> {
+    AsciiIndicesIter {
+        inner: new_ascii_word_bound_indices(s),
+    }
 }
 
 #[inline]

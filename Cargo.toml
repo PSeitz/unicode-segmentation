@@ -42,3 +42,6 @@ harness = false
 name = "unicode_word_indices"
 harness = false
 
+[profile.bench]
+debug = true
+
